@@ -1,7 +1,6 @@
 // src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import Constants from 'expo-constants';
 
 const supabaseUrl = Constants.expoConfig?.extra?.SUPABASE_URL;
@@ -50,6 +49,19 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+  },
+  // Disable realtime to avoid ws dependency issues
+  realtime: {
+    params: {
+      eventsPerSecond: 2,
+    },
+  },
+  db: {
+    schema: 'public',
+  },
+  // Add global configuration to prevent websocket usage
+  global: {
+    fetch: fetch,
   },
 });
 

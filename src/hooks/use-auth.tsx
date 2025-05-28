@@ -1,7 +1,7 @@
-// src/hooks/use-auth.tsx - Ultra minimal, no database dependencies
+// src/hooks/use-auth.tsx - Simplified to fix displayName error
 import { supabase } from '@/lib/supabase';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 interface User {
   id: string;
@@ -21,15 +21,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function useAuth() {
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
-}
+};
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,8 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    console.log('🔐 AuthProvider mounting...');
+    
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('🔐 Initial session check:', session?.user?.email || 'No session');
       setSession(session);
       if (session?.user) {
         setUser(createUserFromAuth(session.user));
@@ -57,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.id);
+        console.log('🔐 Auth state changed:', event, session?.user?.id);
         setSession(session);
         if (session?.user) {
           setUser(createUserFromAuth(session.user));
@@ -68,7 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      console.log('🔐 AuthProvider unmounting...');
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string, username: string) => {
@@ -112,7 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('User profile created successfully');
       }
 
-      console.log('User signup successful - no custom profile needed');
       return { error: null };
     } catch (err) {
       console.error('Signup catch error:', err);
@@ -140,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  const value: AuthContextType = {
+  const contextValue: AuthContextType = {
     user,
     session,
     loading,
@@ -149,9 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut,
   };
 
+  console.log('🔐 AuthProvider rendering with user:', user?.email || 'No user');
+
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
-}
+};

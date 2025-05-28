@@ -2,12 +2,13 @@ import 'dotenv/config';
 
 export default {
   expo: {
-    name: 'problems',
-    slug: 'problems',
+    name: 'Add On',
+    slug: 'add-on-climbing',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/images/icon.png',
-    scheme: 'problems',
+    // Remove icon reference for now - you can add it back when you have the asset
+    // icon: './assets/images/icon.png',
+    scheme: 'addon',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     ios: {
@@ -23,7 +24,8 @@ export default {
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: './assets/images/adaptive-icon.png',
+        // Remove icon references for now
+        // foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
       permissions: [
@@ -39,15 +41,17 @@ export default {
     web: {
       bundler: 'metro',
       output: 'static',
-      favicon: './assets/images/favicon.png',
+      // Remove favicon reference for now
+      // favicon: './assets/images/favicon.png',
     },
     plugins: [
       'expo-router',
       [
         'expo-splash-screen',
         {
-          image: './assets/images/splash-icon.png',
-          imageWidth: 200,
+          // Remove splash icon reference for now - use background color instead
+          // image: './assets/images/splash-icon.png',
+          // imageWidth: 200,
           resizeMode: 'contain',
           backgroundColor: '#ffffff',
         },
@@ -73,6 +77,7 @@ export default {
       typedRoutes: true,
     },
     extra: {
+      // Use environment variables with fallbacks
       SUPABASE_URL: process.env.SUPABASE_URL,
       SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
     },
