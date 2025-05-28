@@ -1,0 +1,9 @@
+/* src/assets/styles/global.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ensure the app renders properly */
+html, body, #root {
+  height: 100%;
+}
