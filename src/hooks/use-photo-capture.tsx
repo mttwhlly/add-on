@@ -1,9 +1,9 @@
-// src/hooks/use-photo-capture.tsx
+// src/hooks/use-photo-capture.jsx (updated for PocketBase)
 import { useState } from 'react';
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 
 export interface PhotoUploadResult {
   url: string;
@@ -56,7 +56,7 @@ export const usePhotoCapture = () => {
       console.log('📸 Launching camera...');
       
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, // Use the old API for now
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
@@ -100,7 +100,7 @@ export const usePhotoCapture = () => {
       console.log('📱 Launching image picker...');
       
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, // Use the old API for now
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
@@ -128,62 +128,69 @@ export const usePhotoCapture = () => {
 
   const uploadPhoto = async (
     uri: string, 
-    bucket: string = 'climbing-photos',
+    collection: string = 'climbing_problems', // Use collection name instead of bucket
     folder?: string
   ): Promise<PhotoUploadResult | null> => {
     setLoading(true);
     
     try {
-      // Generate unique filename
-      const timestamp = Date.now();
-      const randomString = Math.random().toString(36).substring(7);
-      const filename = `${timestamp}_${randomString}.jpg`;
-      const path = folder ? `${folder}/${filename}` : filename;
+      console.log('📤 PocketBase: Starting photo upload...');
+      console.log('📁 Collection:', collection);
+      console.log('📂 Folder:', folder);
 
       // Convert URI to blob for upload
       const response = await fetch(uri);
       const blob = await response.blob();
 
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(path, blob, {
-          contentType: 'image/jpeg',
-          upsert: false,
-        });
+      // Generate unique filename
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(7);
+      const filename = `${timestamp}_${randomString}.jpg`;
 
-      if (error) {
-        console.error('Upload error:', error);
-        throw error;
-      }
+      console.log('📄 Generated filename:', filename);
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(path);
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('file', blob, filename);
 
-      console.log('📤 Upload complete!');
-      console.log('📁 Storage path:', path);
-      console.log('🌐 Public URL:', publicUrl);
-      console.log('🔧 Bucket:', bucket);
+      // For PocketBase, we'll upload the file directly via the API
+      // This is a simplified approach - in a real app you might want to 
+      // create a record first and then update it with the file
+      const tempRecord = await pb.pb.collection(collection).create({
+        name: 'temp_upload',
+        creator: pb.currentUser?.id,
+        location: 'temp',
+        is_public: false,
+        holds: []
+      });
+
+      // Update the record with the file
+      const updatedRecord = await pb.pb.collection(collection).update(tempRecord.id, {
+        wall_photo: blob
+      });
+
+      // Get the file URL
+      const photoUrl = pb.pb.getFileUrl(updatedRecord, updatedRecord.wall_photo);
+
+      console.log('📤 PocketBase upload complete!');
+      console.log('🆔 Record ID:', updatedRecord.id);
+      console.log('🌐 Photo URL:', photoUrl);
 
       // Test if URL is accessible
       try {
-        const testResponse = await fetch(publicUrl, { method: 'HEAD' });
+        const testResponse = await fetch(photoUrl, { method: 'HEAD' });
         console.log('🧪 URL test status:', testResponse.status);
-        if (testResponse.status !== 200) {
-          console.warn('⚠️ URL not publicly accessible - check storage policies');
-        }
       } catch (testError) {
         console.warn('⚠️ URL test failed:', testError.message);
       }
 
       return {
-        url: publicUrl,
-        path: path,
+        url: photoUrl,
+        path: updatedRecord.wall_photo, // PocketBase uses filename, not path
+        recordId: updatedRecord.id // Additional metadata for cleanup
       };
     } catch (error) {
-      console.error('Error uploading photo:', error);
+      console.error('❌ PocketBase upload error:', error);
       Alert.alert('Upload Error', 'Failed to upload photo');
       return null;
     } finally {
@@ -192,21 +199,18 @@ export const usePhotoCapture = () => {
   };
 
   const deletePhoto = async (
-    path: string, 
-    bucket: string = 'climbing-photos'
+    recordId: string,
+    collection: string = 'climbing_problems'
   ): Promise<boolean> => {
     try {
-      const { error } = await supabase.storage
-        .from(bucket)
-        .remove([path]);
-
-      if (error) {
-        console.error('Delete error:', error);
-        return false;
-      }
+      console.log('🗑️ PocketBase: Deleting photo record:', recordId);
+      
+      await pb.pb.collection(collection).delete(recordId);
+      
+      console.log('✅ Photo record deleted successfully');
       return true;
     } catch (error) {
-      console.error('Error deleting photo:', error);
+      console.error('❌ Error deleting photo:', error);
       return false;
     }
   };

@@ -1,4 +1,4 @@
-// src/components/EnhancedPhotoTagger.tsx - For future use with draggable holds
+// src/components/PhotoTagger.tsx - For future use with draggable holds
 import { useState } from 'react';
 import {
   View,
@@ -27,7 +27,7 @@ interface Hold {
   type?: 'start' | 'middle' | 'finish';
 }
 
-interface EnhancedPhotoTaggerProps {
+interface PhotoTaggerProps {
   imageUri: string;
   holds: Hold[];
   onHoldsChange: (holds: Hold[]) => void;
@@ -37,13 +37,13 @@ interface EnhancedPhotoTaggerProps {
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
-export function EnhancedPhotoTagger({ 
+export function PhotoTagger({ 
   imageUri, 
   holds, 
   onHoldsChange, 
   editable = false,
   onHoldSelect 
-}: EnhancedPhotoTaggerProps) {
+}: PhotoTaggerProps) {
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState({ x: 0, y: 0 });

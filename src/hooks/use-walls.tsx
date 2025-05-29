@@ -1,74 +1,41 @@
-// src/hooks/use-walls.tsx
-import { supabase } from '@/lib/supabase';
+// src/hooks/use-walls.jsx (updated for PocketBase)
 import { useState } from 'react';
+import { pb } from '@/lib/pocketbase';
 import { useAuth } from './use-auth';
 
-export interface ClimbingWall {
+export interface ClimbingProblem {
   id: string;
-  created_by_user_id: string;
+  creator: string;
   name: string;
   location: string;
   description?: string;
-  photo_url: string;
-  photo_path: string;
+  difficulty?: string;
+  wall_photo: string;
+  holds: any[]; // JSON array of holds
   is_public: boolean;
-  created_at: string;
-  updated_at: string;
-  route_count?: number;
+  tags?: any[]; // JSON array of tags
+  created: string;
+  updated: string;
 }
 
-export interface WallHold {
+export interface Hold {
   id: string;
-  wall_id: string;
-  x_percentage: number;
-  y_percentage: number;
+  x: number;
+  y: number;
   description: string;
   color?: string;
-  hold_type?: 'jug' | 'crimp' | 'pinch' | 'sloper' | 'pocket' | 'other';
-  created_at: string;
+  type?: 'start' | 'middle' | 'finish' | 'feet_only';
 }
 
-export interface ClimbingRoute {
-  id: string;
-  wall_id: string;
-  created_by_user_id: string;
-  name: string;
-  grade?: string;
-  description?: string;
-  is_public: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface RouteHold {
-  id: string;
-  route_id: string;
-  hold_id: string;
-  sequence_order: number;
-  hold_role: 'start' | 'middle' | 'finish' | 'feet_only';
-  created_at: string;
-  hold?: WallHold; // Joined hold data
-}
-
-export interface CreateWallData {
+export interface CreateProblemData {
   name: string;
   location: string;
   description?: string;
-  photo_url: string;
-  photo_path: string;
+  difficulty?: string;
+  wall_photo: File | Blob;
+  holds: Hold[];
   is_public?: boolean;
-}
-
-export interface CreateRouteData {
-  wall_id: string;
-  name: string;
-  grade?: string;
-  description?: string;
-  hold_sequence: Array<{
-    hold_id: string;
-    hold_role: 'start' | 'middle' | 'finish' | 'feet_only';
-  }>;
-  is_public?: boolean;
+  tags?: string[];
 }
 
 export const useWalls = () => {
@@ -77,280 +44,65 @@ export const useWalls = () => {
   const [error, setError] = useState<string | null>(null);
 
   // ==========================================
-  // WALL MANAGEMENT
+  // CLIMBING PROBLEMS MANAGEMENT
   // ==========================================
 
-  const createWall = async (wallData: CreateWallData): Promise<ClimbingWall | null> => {
+  const createProblem = async (problemData: CreateProblemData): Promise<ClimbingProblem | null> => {
     if (!user) return null;
     
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
-        .from('climbing_walls')
-        .insert([
-          {
-            created_by_user_id: user.id,
-            ...wallData,
-            is_public: wallData.is_public ?? true,
-          },
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (err: any) {
-      console.error('Error creating wall:', err);
-      setError(err.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getWalls = async (location?: string, limit: number = 50): Promise<ClimbingWall[]> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase.rpc('get_nearby_walls', {
-        search_location: location || null,
-        limit_count: limit,
-      });
-
-      if (error) throw error;
-      return data || [];
-    } catch (err: any) {
-      console.error('Error fetching walls:', err);
-      setError(err.message);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getWallById = async (wallId: string): Promise<ClimbingWall | null> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase
-        .from('climbing_walls')
-        .select('*')
-        .eq('id', wallId)
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (err: any) {
-      console.error('Error fetching wall:', err);
-      setError(err.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getUserWalls = async (): Promise<ClimbingWall[]> => {
-    if (!user) return [];
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase
-        .from('climbing_walls')
-        .select(`
-          *,
-          climbing_routes!inner(id)
-        `)
-        .eq('created_by_user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      console.log('PocketBase: Creating climbing problem...', problemData.name);
       
-      // Add route count
-      return (data || []).map(wall => ({
-        ...wall,
-        route_count: wall.climbing_routes?.length || 0,
-      }));
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('creator', user.id);
+      formData.append('name', problemData.name);
+      formData.append('location', problemData.location);
+      formData.append('description', problemData.description || '');
+      formData.append('difficulty', problemData.difficulty || '');
+      formData.append('holds', JSON.stringify(problemData.holds));
+      formData.append('is_public', problemData.is_public !== false ? 'true' : 'false');
+      formData.append('tags', JSON.stringify(problemData.tags || []));
+      formData.append('wall_photo', problemData.wall_photo);
+
+      const problem = await pb.pb.collection('climbing_problems').create(formData);
+      
+      console.log('PocketBase: Problem created successfully:', problem.id);
+      return problem;
     } catch (err: any) {
-      console.error('Error fetching user walls:', err);
+      console.error('PocketBase: Error creating problem:', err);
       setError(err.message);
-      return [];
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  // ==========================================
-  // HOLDS MANAGEMENT
-  // ==========================================
-
-  const addHoldsToWall = async (wallId: string, holds: Omit<WallHold, 'id' | 'wall_id' | 'created_at'>[]): Promise<boolean> => {
+  const getProblems = async (location?: string, limit: number = 50): Promise<ClimbingProblem[]> => {
     setLoading(true);
     setError(null);
     
     try {
-      const holdsData = holds.map(hold => ({
-        wall_id: wallId,
-        ...hold,
-      }));
-
-      const { error } = await supabase
-        .from('wall_holds')
-        .insert(holdsData);
-
-      if (error) throw error;
-      return true;
-    } catch (err: any) {
-      console.error('Error adding holds:', err);
-      setError(err.message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getWallHolds = async (wallId: string): Promise<WallHold[]> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase
-        .from('wall_holds')
-        .select('*')
-        .eq('wall_id', wallId)
-        .order('created_at');
-
-      if (error) throw error;
-      return data || [];
-    } catch (err: any) {
-      console.error('Error fetching holds:', err);
-      setError(err.message);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteHold = async (holdId: string): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { error } = await supabase
-        .from('wall_holds')
-        .delete()
-        .eq('id', holdId);
-
-      if (error) throw error;
-      return true;
-    } catch (err: any) {
-      console.error('Error deleting hold:', err);
-      setError(err.message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ==========================================
-  // ROUTE MANAGEMENT
-  // ==========================================
-
-  const createRoute = async (routeData: CreateRouteData): Promise<ClimbingRoute | null> => {
-    if (!user) return null;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Create the route
-      const { data: route, error: routeError } = await supabase
-        .from('climbing_routes')
-        .insert([
-          {
-            created_by_user_id: user.id,
-            wall_id: routeData.wall_id,
-            name: routeData.name,
-            grade: routeData.grade,
-            description: routeData.description,
-            is_public: routeData.is_public ?? true,
-          },
-        ])
-        .select()
-        .single();
-
-      if (routeError) throw routeError;
-
-      // Add route holds if provided
-      if (routeData.hold_sequence.length > 0) {
-        const routeHoldsData = routeData.hold_sequence.map((holdSeq, index) => ({
-          route_id: route.id,
-          hold_id: holdSeq.hold_id,
-          sequence_order: index + 1,
-          hold_role: holdSeq.hold_role,
-        }));
-
-        const { error: holdsError } = await supabase
-          .from('route_holds')
-          .insert(routeHoldsData);
-
-        if (holdsError) {
-          console.error('Error adding route holds:', holdsError);
-          // Don't fail the whole operation
-        }
+      console.log('PocketBase: Fetching problems...', { location, limit });
+      
+      let filter = 'is_public = true';
+      if (location) {
+        filter += ` && location ~ "${location}"`;
       }
 
-      return route;
-    } catch (err: any) {
-      console.error('Error creating route:', err);
-      setError(err.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getRouteWithHolds = async (routeId: string): Promise<any> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase.rpc('get_route_with_holds', {
-        route_uuid: routeId,
+      const result = await pb.pb.collection('climbing_problems').getList(1, limit, {
+        filter,
+        sort: '-created',
+        expand: 'creator'
       });
 
-      if (error) throw error;
-      return data;
+      console.log('PocketBase: Found problems:', result.items.length);
+      return result.items;
     } catch (err: any) {
-      console.error('Error fetching route with holds:', err);
-      setError(err.message);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getWallRoutes = async (wallId: string): Promise<ClimbingRoute[]> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data, error } = await supabase
-        .from('climbing_routes')
-        .select('*')
-        .eq('wall_id', wallId)
-        .eq('is_public', true)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (err: any) {
-      console.error('Error fetching wall routes:', err);
+      console.error('PocketBase: Error fetching problems:', err);
       setError(err.message);
       return [];
     } finally {
@@ -358,28 +110,113 @@ export const useWalls = () => {
     }
   };
 
-  const getUserRoutes = async (): Promise<ClimbingRoute[]> => {
+  const getProblemById = async (problemId: string): Promise<ClimbingProblem | null> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('PocketBase: Fetching problem by ID:', problemId);
+      
+      const problem = await pb.pb.collection('climbing_problems').getOne(problemId, {
+        expand: 'creator'
+      });
+
+      console.log('PocketBase: Problem found:', problem.name);
+      return problem;
+    } catch (err: any) {
+      console.error('PocketBase: Error fetching problem:', err);
+      setError(err.message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getUserProblems = async (): Promise<ClimbingProblem[]> => {
     if (!user) return [];
     
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
-        .from('climbing_routes')
-        .select(`
-          *,
-          climbing_walls!inner(name, location)
-        `)
-        .eq('created_by_user_id', user.id)
-        .order('created_at', { ascending: false });
+      console.log('PocketBase: Fetching user problems...');
+      
+      const result = await pb.pb.collection('climbing_problems').getList(1, 50, {
+        filter: `creator = "${user.id}"`,
+        sort: '-created'
+      });
 
-      if (error) throw error;
-      return data || [];
+      console.log('PocketBase: Found user problems:', result.items.length);
+      return result.items;
     } catch (err: any) {
-      console.error('Error fetching user routes:', err);
+      console.error('PocketBase: Error fetching user problems:', err);
       setError(err.message);
       return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateProblem = async (problemId: string, updates: Partial<CreateProblemData>): Promise<ClimbingProblem | null> => {
+    if (!user) return null;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('PocketBase: Updating problem:', problemId);
+      
+      // Prepare update data
+      const updateData: any = {};
+      
+      if (updates.name) updateData.name = updates.name;
+      if (updates.location) updateData.location = updates.location;
+      if (updates.description !== undefined) updateData.description = updates.description;
+      if (updates.difficulty !== undefined) updateData.difficulty = updates.difficulty;
+      if (updates.holds) updateData.holds = JSON.stringify(updates.holds);
+      if (updates.is_public !== undefined) updateData.is_public = updates.is_public;
+      if (updates.tags) updateData.tags = JSON.stringify(updates.tags);
+
+      // Handle file upload if new photo
+      if (updates.wall_photo) {
+        const formData = new FormData();
+        Object.keys(updateData).forEach(key => {
+          formData.append(key, updateData[key]);
+        });
+        formData.append('wall_photo', updates.wall_photo);
+        
+        const problem = await pb.pb.collection('climbing_problems').update(problemId, formData);
+        return problem;
+      } else {
+        const problem = await pb.pb.collection('climbing_problems').update(problemId, updateData);
+        return problem;
+      }
+    } catch (err: any) {
+      console.error('PocketBase: Error updating problem:', err);
+      setError(err.message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteProblem = async (problemId: string): Promise<boolean> => {
+    if (!user) return false;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('PocketBase: Deleting problem:', problemId);
+      
+      await pb.pb.collection('climbing_problems').delete(problemId);
+      
+      console.log('PocketBase: Problem deleted successfully');
+      return true;
+    } catch (err: any) {
+      console.error('PocketBase: Error deleting problem:', err);
+      setError(err.message);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -389,23 +226,23 @@ export const useWalls = () => {
   // SEARCH & DISCOVERY
   // ==========================================
 
-  const searchWalls = async (query: string): Promise<ClimbingWall[]> => {
+  const searchProblems = async (query: string): Promise<ClimbingProblem[]> => {
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
-        .from('climbing_walls')
-        .select('*')
-        .or(`name.ilike.%${query}%,location.ilike.%${query}%,description.ilike.%${query}%`)
-        .eq('is_public', true)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      console.log('PocketBase: Searching problems:', query);
+      
+      const result = await pb.pb.collection('climbing_problems').getList(1, 20, {
+        filter: `is_public = true && (name ~ "${query}" || location ~ "${query}" || description ~ "${query}" || difficulty ~ "${query}")`,
+        sort: '-created',
+        expand: 'creator'
+      });
 
-      if (error) throw error;
-      return data || [];
+      console.log('PocketBase: Search results:', result.items.length);
+      return result.items;
     } catch (err: any) {
-      console.error('Error searching walls:', err);
+      console.error('PocketBase: Error searching problems:', err);
       setError(err.message);
       return [];
     } finally {
@@ -413,52 +250,89 @@ export const useWalls = () => {
     }
   };
 
-  const searchRoutes = async (query: string): Promise<ClimbingRoute[]> => {
+  const getProblemsByDifficulty = async (difficulty: string): Promise<ClimbingProblem[]> => {
     setLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
-        .from('climbing_routes')
-        .select(`
-          *,
-          climbing_walls!inner(name, location)
-        `)
-        .or(`name.ilike.%${query}%,description.ilike.%${query}%,grade.ilike.%${query}%`)
-        .eq('is_public', true)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      console.log('PocketBase: Fetching problems by difficulty:', difficulty);
+      
+      const result = await pb.pb.collection('climbing_problems').getList(1, 50, {
+        filter: `is_public = true && difficulty = "${difficulty}"`,
+        sort: '-created',
+        expand: 'creator'
+      });
 
-      if (error) throw error;
-      return data || [];
+      return result.items;
     } catch (err: any) {
-      console.error('Error searching routes:', err);
+      console.error('PocketBase: Error fetching problems by difficulty:', err);
       setError(err.message);
       return [];
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getProblemsByLocation = async (location: string): Promise<ClimbingProblem[]> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('PocketBase: Fetching problems by location:', location);
+      
+      const result = await pb.pb.collection('climbing_problems').getList(1, 50, {
+        filter: `is_public = true && location ~ "${location}"`,
+        sort: '-created',
+        expand: 'creator'
+      });
+
+      return result.items;
+    } catch (err: any) {
+      console.error('PocketBase: Error fetching problems by location:', err);
+      setError(err.message);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // UTILITY FUNCTIONS
+  // ==========================================
+
+  const getPhotoUrl = (problem: ClimbingProblem): string => {
+    return pb.pb.getFileUrl(problem, problem.wall_photo);
+  };
+
+  const getCreatorInfo = async (creatorId: string) => {
+    try {
+      const creator = await pb.pb.collection('users').getOne(creatorId);
+      return {
+        username: creator.username,
+        email: creator.email
+      };
+    } catch (error) {
+      console.error('Error fetching creator info:', error);
+      return null;
     }
   };
 
   return {
     loading,
     error,
-    // Wall management
-    createWall,
-    getWalls,
-    getWallById,
-    getUserWalls,
-    // Holds management
-    addHoldsToWall,
-    getWallHolds,
-    deleteHold,
-    // Route management
-    createRoute,
-    getRouteWithHolds,
-    getWallRoutes,
-    getUserRoutes,
-    // Search
-    searchWalls,
-    searchRoutes,
+    // Problem management
+    createProblem,
+    getProblems,
+    getProblemById,
+    getUserProblems,
+    updateProblem,
+    deleteProblem,
+    // Search & discovery
+    searchProblems,
+    getProblemsByDifficulty,
+    getProblemsByLocation,
+    // Utility
+    getPhotoUrl,
+    getCreatorInfo,
   };
 };

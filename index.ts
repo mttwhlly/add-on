@@ -1,5 +1,5 @@
-import 'expo-router/entry';
 import 'react-native-url-polyfill/auto';
+import 'expo-router/entry';
 
 global.isReactNative = false;
 if (typeof navigator !== 'undefined' && navigator.product === 'ReactNative') {
