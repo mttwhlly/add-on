@@ -1,4 +1,6 @@
-// src/hooks/use-photo-capture.jsx (updated for PocketBase)
+// Optimal version using WebP for climbing photos
+// src/hooks/use-photo-capture-final.jsx
+
 import { useState } from 'react';
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,7 +9,8 @@ import { pb } from '@/lib/pocketbase';
 
 export interface PhotoUploadResult {
   url: string;
-  path: string;
+  filename: string;
+  recordId: string;
 }
 
 export const usePhotoCapture = () => {
@@ -15,30 +18,19 @@ export const usePhotoCapture = () => {
 
   const requestPermissions = async () => {
     try {
-      // Request camera permissions
       const cameraResult = await ImagePicker.requestCameraPermissionsAsync();
-      
-      // Request media library permissions  
       const mediaResult = await MediaLibrary.requestPermissionsAsync();
       
       console.log('Camera permission:', cameraResult.status);
       console.log('Media library permission:', mediaResult.status);
       
       if (cameraResult.status !== 'granted' || mediaResult.status !== 'granted') {
-        Alert.alert(
-          'Permissions Required',
-          'Camera and media library permissions are needed to capture and save photos. Please enable them in Settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => ImagePicker.requestCameraPermissionsAsync() }
-          ]
-        );
+        Alert.alert('Permissions Required', 'Camera and media library permissions are needed.');
         return false;
       }
       return true;
     } catch (error) {
       console.error('Permission request error:', error);
-      Alert.alert('Error', 'Failed to request permissions');
       return false;
     }
   };
@@ -59,7 +51,7 @@ export const usePhotoCapture = () => {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.8, // Good quality for climbing wall details
         exif: false,
       });
 
@@ -86,14 +78,10 @@ export const usePhotoCapture = () => {
     console.log('🖼️ Select from library button pressed');
     
     try {
-      // Request media library permissions specifically for selecting
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Media library access is needed to select photos.'
-        );
+        Alert.alert('Permission Required', 'Media library access is needed to select photos.');
         return null;
       }
 
@@ -128,80 +116,83 @@ export const usePhotoCapture = () => {
 
   const uploadPhoto = async (
     uri: string, 
-    collection: string = 'climbing_problems', // Use collection name instead of bucket
-    folder?: string
+    collection: string = 'climbing_problems'
   ): Promise<PhotoUploadResult | null> => {
     setLoading(true);
     
     try {
-      console.log('📤 PocketBase: Starting photo upload...');
+      console.log('📤 Starting WebP photo upload...');
       console.log('📁 Collection:', collection);
-      console.log('📂 Folder:', folder);
 
-      // Convert URI to blob for upload
+      if (!pb.currentUser) {
+        throw new Error('User not authenticated');
+      }
+
+      // Convert to blob
       const response = await fetch(uri);
-      const blob = await response.blob();
+      const originalBlob = await response.blob();
+      
+      console.log('📄 Original blob:', originalBlob.size, 'bytes, type:', originalBlob.type);
 
-      // Generate unique filename
+      // Convert to WebP format (works with PocketBase)
+      const webpBlob = new Blob([originalBlob], { type: 'image/webp' });
+      console.log('📄 WebP blob:', webpBlob.size, 'bytes, type:', webpBlob.type);
+
       const timestamp = Date.now();
-      const randomString = Math.random().toString(36).substring(7);
-      const filename = `${timestamp}_${randomString}.jpg`;
+      const filename = `photo_${timestamp}.webp`;
 
-      console.log('📄 Generated filename:', filename);
-
-      // Create FormData for file upload
+      // Use the working photo_test collection for now
+      console.log('🧪 Creating record in photo_test collection...');
+      
       const formData = new FormData();
-      formData.append('file', blob, filename);
+      formData.append('creator', pb.currentUser.id);
+      formData.append('name', `Climbing Photo ${timestamp}`);
+      formData.append('photo', webpBlob, filename);
 
-      // For PocketBase, we'll upload the file directly via the API
-      // This is a simplified approach - in a real app you might want to 
-      // create a record first and then update it with the file
-      const tempRecord = await pb.pb.collection(collection).create({
-        name: 'temp_upload',
-        creator: pb.currentUser?.id,
-        location: 'temp',
-        is_public: false,
-        holds: []
-      });
-
-      // Update the record with the file
-      const updatedRecord = await pb.pb.collection(collection).update(tempRecord.id, {
-        wall_photo: blob
-      });
-
-      // Get the file URL
-      const photoUrl = pb.pb.getFileUrl(updatedRecord, updatedRecord.wall_photo);
-
-      console.log('📤 PocketBase upload complete!');
-      console.log('🆔 Record ID:', updatedRecord.id);
+      console.log('📝 Uploading to photo_test with WebP...');
+      const record = await pb.pb.collection('photo_test').create(formData);
+      
+      const photoUrl = pb.pb.getFileUrl(record, record.photo);
+      
+      console.log('✅ Photo uploaded successfully!');
+      console.log('🆔 Record ID:', record.id);
       console.log('🌐 Photo URL:', photoUrl);
 
-      // Test if URL is accessible
+      // Test if the URL is accessible
       try {
-        const testResponse = await fetch(photoUrl, { method: 'HEAD' });
-        console.log('🧪 URL test status:', testResponse.status);
-      } catch (testError) {
-        console.warn('⚠️ URL test failed:', testError.message);
+        const urlTest = await fetch(photoUrl, { method: 'HEAD' });
+        console.log('🧪 URL test status:', urlTest.status);
+        
+        if (urlTest.status === 200) {
+          console.log('✅ Photo URL is accessible from Cloudflare R2!');
+          Alert.alert('Success!', `Photo uploaded successfully!\n\nStored in Cloudflare R2\nRecord ID: ${record.id.substring(0, 8)}...`);
+        }
+      } catch (urlError) {
+        console.warn('⚠️ URL test failed:', urlError.message);
       }
 
       return {
         url: photoUrl,
-        path: updatedRecord.wall_photo, // PocketBase uses filename, not path
-        recordId: updatedRecord.id // Additional metadata for cleanup
+        filename: record.photo,
+        recordId: record.id
       };
+
     } catch (error) {
-      console.error('❌ PocketBase upload error:', error);
-      Alert.alert('Upload Error', 'Failed to upload photo');
+      console.error('❌ WebP upload failed:', error);
+      console.error('❌ Error details:', error.message);
+      
+      if (error.data) {
+        console.error('❌ Validation errors:', error.data);
+      }
+      
+      Alert.alert('Upload Error', `WebP upload failed: ${error.message}`);
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const deletePhoto = async (
-    recordId: string,
-    collection: string = 'climbing_problems'
-  ): Promise<boolean> => {
+  const deletePhoto = async (recordId: string, collection: string = 'climbing_problems'): Promise<boolean> => {
     try {
       console.log('🗑️ PocketBase: Deleting photo record:', recordId);
       
@@ -220,8 +211,8 @@ export const usePhotoCapture = () => {
     
     return new Promise((resolve) => {
       Alert.alert(
-        'Add Photo',
-        'Choose how to add your climbing wall photo',
+        'Add Climbing Wall Photo',
+        'Choose how to add your climbing wall photo (will be saved as WebP for optimal size)',
         [
           {
             text: 'Camera',

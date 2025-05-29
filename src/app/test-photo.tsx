@@ -43,7 +43,7 @@ export default function TestPhoto() {
 
     console.log('⬆️ Starting photo upload...');
     
-    const result = await uploadPhoto(photoUri, 'climbing-photos', 'test');
+    const result = await uploadPhoto(photoUri, 'climbing-problems', 'test');
     
     if (result) {
       console.log('✅ Upload successful:', result);

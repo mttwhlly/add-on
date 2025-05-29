@@ -1,33 +1,65 @@
-// src/lib/pocketbase.js
 import PocketBase from 'pocketbase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const PB_URL = 'https://pocketbase-p8cowg08c04okooc4kwgs4c8.mttwhlly.cc';
 
 class PocketBaseClient {
   constructor() {
+    console.log('🚀 PocketBase: Initializing client...');
+    console.log('🔧 Platform:', Platform.OS);
+    
     this.pb = new PocketBase(PB_URL);
     this.setupAuth();
   }
 
   async setupAuth() {
-    // Load auth from AsyncStorage on app start
+    console.log('🔐 PocketBase: Setting up auth...');
+    
     try {
-      const authData = await AsyncStorage.getItem('pocketbase_auth');
-      if (authData) {
-        const parsed = JSON.parse(authData);
-        this.pb.authStore.save(parsed.token, parsed.model);
+      // Platform-specific storage handling
+      if (Platform.OS === 'web') {
+        // Web platform - use localStorage
+        console.log('💾 Using localStorage for web');
+        
+        const authData = localStorage.getItem('pocketbase_auth');
+        if (authData) {
+          const parsed = JSON.parse(authData);
+          this.pb.authStore.save(parsed.token, parsed.model);
+          console.log('🔐 Restored auth from localStorage');
+        }
+
+        this.pb.authStore.onChange((token, model) => {
+          const authData = { token, model };
+          localStorage.setItem('pocketbase_auth', JSON.stringify(authData));
+          console.log('💾 Auth saved to localStorage');
+        });
+        
+      } else {
+        // React Native (iOS/Android) - use AsyncStorage
+        console.log('💾 Using AsyncStorage for mobile');
+        
+        const AsyncStorage = await import('@react-native-async-storage/async-storage');
+        
+        const authData = await AsyncStorage.default.getItem('pocketbase_auth');
+        if (authData) {
+          const parsed = JSON.parse(authData);
+          this.pb.authStore.save(parsed.token, parsed.model);
+          console.log('🔐 Restored auth from AsyncStorage');
+        }
+
+        this.pb.authStore.onChange(async (token, model) => {
+          const authData = { token, model };
+          try {
+            await AsyncStorage.default.setItem('pocketbase_auth', JSON.stringify(authData));
+            console.log('💾 Auth saved to AsyncStorage');
+          } catch (error) {
+            console.error('❌ Error saving auth to AsyncStorage:', error);
+          }
+        });
       }
     } catch (error) {
-      console.error('Error loading auth from storage:', error);
+      console.error('❌ Error setting up auth storage:', error);
     }
-
-    // Save auth changes to AsyncStorage
-    this.pb.authStore.onChange((token, model) => {
-      const authData = { token, model };
-      AsyncStorage.setItem('pocketbase_auth', JSON.stringify(authData))
-        .catch(error => console.error('Error saving auth to storage:', error));
-    });
   }
 
   // Auth methods
@@ -44,7 +76,6 @@ class PocketBaseClient {
       
       console.log('PocketBase: User created, signing in...');
       
-      // Automatically sign in after signup
       const authData = await this.pb.collection('users').authWithPassword(email, password);
       
       console.log('PocketBase: Signup and signin successful');
@@ -72,14 +103,21 @@ class PocketBaseClient {
   signOut() {
     console.log('PocketBase: Signing out user');
     this.pb.authStore.clear();
-    AsyncStorage.removeItem('pocketbase_auth');
+    
+    // Clear platform-specific storage
+    if (Platform.OS === 'web') {
+      localStorage.removeItem('pocketbase_auth');
+    } else {
+      import('@react-native-async-storage/async-storage').then(AsyncStorage => {
+        AsyncStorage.default.removeItem('pocketbase_auth');
+      });
+    }
   }
 
   get currentUser() {
     const user = this.pb.authStore.model;
     if (!user) return null;
     
-    // Convert to format expected by your app
     return {
       id: user.id,
       email: user.email,
@@ -157,7 +195,7 @@ class PocketBaseClient {
 
       if (existingPlayers.items.length > 0) {
         console.log('PocketBase: User already in game');
-        return game; // Already in game
+        return game;
       }
 
       // Get current player count
@@ -189,14 +227,12 @@ class PocketBaseClient {
     try {
       console.log('PocketBase: Starting game:', gameId);
       
-      // Get game and verify user is host
       const game = await this.pb.collection('game_sessions').getOne(gameId);
       
       if (game.host !== this.currentUser.id) {
         throw new Error('Only the host can start the game');
       }
 
-      // Get players
       const players = await this.pb.collection('game_players').getList(1, 50, {
         filter: `game = "${gameId}"`,
         sort: 'turn_order'
@@ -206,7 +242,6 @@ class PocketBaseClient {
         throw new Error('Need at least 2 players to start');
       }
 
-      // Update game status and set first turn
       const updatedGame = await this.pb.collection('game_sessions').update(gameId, {
         status: 'active',
         started_at: new Date().toISOString(),
@@ -225,14 +260,12 @@ class PocketBaseClient {
     try {
       console.log('PocketBase: Adding move to game:', gameId);
       
-      // Get current game state
       const game = await this.pb.collection('game_sessions').getOne(gameId);
       
       if (game.current_turn_user !== this.currentUser.id) {
         throw new Error('Not your turn');
       }
 
-      // Get current move count
       const moves = await this.pb.collection('game_moves').getList(1, 1, {
         filter: `game = "${gameId}"`,
         sort: '-move_number'
@@ -241,7 +274,6 @@ class PocketBaseClient {
       const moveNumber = moves.items.length > 0 ? moves.items[0].move_number + 1 : 1;
       console.log('PocketBase: Adding move number:', moveNumber);
 
-      // Create move
       await this.pb.collection('game_moves').create({
         game: gameId,
         move_number: moveNumber,
@@ -249,7 +281,6 @@ class PocketBaseClient {
         hold_description: moveData.hold_description
       });
 
-      // Get players and update turn
       const players = await this.pb.collection('game_players').getList(1, 50, {
         filter: `game = "${gameId}" && !is_eliminated`,
         sort: 'turn_order'
@@ -271,17 +302,15 @@ class PocketBaseClient {
     }
   }
 
-  // Real-time subscriptions (much more reliable than Supabase!)
+  // Real-time subscriptions
   subscribeToGame(gameId, callback) {
     console.log('PocketBase: Setting up real-time subscriptions for game:', gameId);
     
-    // Subscribe to game session changes
     this.pb.collection('game_sessions').subscribe(gameId, (e) => {
       console.log('PocketBase: Game session update:', e.action);
       callback({ type: 'game_update', data: e });
     });
     
-    // Subscribe to player changes  
     this.pb.collection('game_players').subscribe('*', (e) => {
       if (e.record.game === gameId) {
         console.log('PocketBase: Player update:', e.action);
@@ -289,7 +318,6 @@ class PocketBaseClient {
       }
     });
 
-    // Subscribe to move changes
     this.pb.collection('game_moves').subscribe('*', (e) => {
       if (e.record.game === gameId) {
         console.log('PocketBase: Move update:', e.action);
@@ -305,7 +333,6 @@ class PocketBaseClient {
     this.pb.collection('game_moves').unsubscribe('*');
   }
 
-  // Helper method to get file URLs
   getFileUrl(record, filename) {
     return this.pb.getFileUrl(record, filename);
   }
